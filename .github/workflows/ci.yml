@@ -48,6 +48,7 @@ jobs:
       # ── 3. Run preprocessing ──────────────────────────
       - name: Run preprocessing
         run: |
+          cp -r store-sales-time-series-forecasting MLProject/
           cd MLProject
           python automate_NelsonFw.py
           echo "Preprocessing done"
