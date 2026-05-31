@@ -8,7 +8,8 @@ on:
 jobs:
   train-and-deploy:
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: write
     steps:
       # ── 1. Setup ──────────────────────────────────────
       - name: Checkout repository
