@@ -1,0 +1,8 @@
+Docker Hub Image:
+https://hub.docker.com/r/nelsonfw/store-sales-model
+
+Pull command:
+docker pull nelsonfw/store-sales-model:latest
+
+Run command:
+docker run -d -p 5005:8080 nelsonfw/store-sales-model:latest

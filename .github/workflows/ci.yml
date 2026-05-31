@@ -1,0 +1,186 @@
+name: CI - Train Model & Push Docker Image
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  train-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # ── 1. Setup ──────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.12.7
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12.7'
+
+      - name: Check environment
+        run: |
+          python --version
+          pip --version
+          echo "Runner OS: ${{ runner.os }}"
+          df -h
+          echo "Dataset files:"
+          ls -la MLProject/store_sales_preprocessing/
+
+      # ── 2. Install dependencies ───────────────────────
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install \
+            tensorflow==2.15.0 \
+            mlflow==2.19.0 \
+            dagshub \
+            pandas==2.2.2 \
+            numpy==1.26.4 \
+            scikit-learn==1.4.2 \
+            matplotlib==3.8.4 \
+            google-auth \
+            google-auth-oauthlib \
+            google-auth-httplib2 \
+            google-api-python-client
+
+      # ── 3. Run preprocessing ──────────────────────────
+      - name: Run preprocessing
+        run: |
+          python MLProject/automate_NelsonFw.py
+          echo "Preprocessing done"
+          ls -la store_sales_preprocessing/ || echo "Output in MLProject folder"
+          ls -la MLProject/store_sales_preprocessing/ || true
+
+      # ── 4. Set MLflow Tracking URI (DagsHub) ─────────
+      - name: Set MLflow Tracking URI
+        env:
+          DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
+          DAGSHUB_OWNER: ${{ secrets.DAGSHUB_OWNER }}
+          DAGSHUB_REPO:  ${{ secrets.DAGSHUB_REPO }}
+        run: |
+          echo "MLFLOW_TRACKING_URI=https://dagshub.com/${DAGSHUB_OWNER}/${DAGSHUB_REPO}.mlflow" \
+            >> $GITHUB_ENV
+          echo "MLFLOW_TRACKING_USERNAME=${DAGSHUB_OWNER}" >> $GITHUB_ENV
+          echo "MLFLOW_TRACKING_PASSWORD=${DAGSHUB_TOKEN}"  >> $GITHUB_ENV
+
+      # ── 5. Run MLflow project ─────────────────────────
+      - name: Run mlflow project
+        env:
+          MLFLOW_TRACKING_URI:      ${{ env.MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_USERNAME: ${{ env.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ env.MLFLOW_TRACKING_PASSWORD }}
+        run: |
+          cd MLProject
+          mlflow run . \
+            --env-manager=local \
+            -P epochs=30 \
+            -P batch_size=2048 \
+            -P learning_rate=0.001 \
+            -P dropout_rate=0.3
+          cd ..
+          echo "MLflow run completed"
+
+      # ── 6. Get latest MLflow run_id ───────────────────
+      - name: Get latest MLflow run_id
+        env:
+          MLFLOW_TRACKING_URI:      ${{ env.MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_USERNAME: ${{ env.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ env.MLFLOW_TRACKING_PASSWORD }}
+        run: |
+          RUN_ID=$(cat MLProject/latest_run_id.txt 2>/dev/null || \
+            python -c "
+          import mlflow, os
+          client = mlflow.MlflowClient()
+          exp = client.get_experiment_by_name('StoreSales-CI-Pipeline')
+          runs = client.search_runs(exp.experiment_id, order_by=['start_time DESC'], max_results=1)
+          print(runs[0].info.run_id)
+          ")
+          echo "RUN_ID=${RUN_ID}" >> $GITHUB_ENV
+          echo "Latest run_id: ${RUN_ID}"
+
+      # ── 7. Install Python deps for upload ─────────────
+      - name: Install Python dependencies for artifact upload
+        run: |
+          pip install pydrive2 requests
+
+      # ── 8. Upload artefak ke Google Drive ─────────────
+      - name: Upload to Google Drive
+        env:
+          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: |
+          echo '${{ secrets.GDRIVE_CREDENTIALS }}' > /tmp/gdrive_creds.json
+          python - <<'PYEOF'
+          import os, json
+          from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+
+          creds_path = '/tmp/gdrive_creds.json'
+          scopes = ['https://www.googleapis.com/auth/drive']
+          creds = service_account.Credentials.from_service_account_file(
+              creds_path, scopes=scopes)
+          service = build('drive', 'v3', credentials=creds)
+
+          folder_id = os.environ.get('GDRIVE_FOLDER_ID', 'root')
+
+          artifacts = []
+          for root, dirs, files in os.walk('MLProject/ci_artifacts'):
+              for fname in files:
+                  artifacts.append(os.path.join(root, fname))
+
+          for artifact in artifacts:
+              file_metadata = {'name': os.path.basename(artifact), 'parents': [folder_id]}
+              media = MediaFileUpload(artifact, resumable=True)
+              f = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+              print(f"Uploaded {artifact} -> {f.get('id')}")
+          print("All artifacts uploaded to Google Drive")
+          PYEOF
+
+      # ── 9. Build Docker image ──────────────────────────
+      - name: Build Docker Model
+        env:
+          MLFLOW_TRACKING_URI:      ${{ env.MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_USERNAME: ${{ env.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ env.MLFLOW_TRACKING_PASSWORD }}
+          RUN_ID:                   ${{ env.RUN_ID }}
+        run: |
+          IMAGE_NAME="store-sales-model"
+          mlflow models build-docker \
+            --model-uri "runs:/${RUN_ID}/model" \
+            --name "${IMAGE_NAME}" \
+            --enable-mlserver
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
+          docker images | grep ${IMAGE_NAME}
+          echo "Docker image built successfully"
+
+      # ── 10. Login ke Docker Hub ───────────────────────
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ── 11. Tag Docker image ──────────────────────────
+      - name: Tag Docker Image
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          SHORT_SHA=${GITHUB_SHA::7}
+          docker tag ${{ env.IMAGE_NAME }} \
+            ${DOCKERHUB_USERNAME}/store-sales-model:${SHORT_SHA}
+          docker tag ${{ env.IMAGE_NAME }} \
+            ${DOCKERHUB_USERNAME}/store-sales-model:latest
+          echo "DOCKER_TAG=${SHORT_SHA}" >> $GITHUB_ENV
+
+      # ── 12. Push Docker image ke Docker Hub ──────────
+      - name: Push Docker Image
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          docker push ${DOCKERHUB_USERNAME}/store-sales-model:${{ env.DOCKER_TAG }}
+          docker push ${DOCKERHUB_USERNAME}/store-sales-model:latest
+          echo "Docker image pushed to Docker Hub successfully"
+          echo "Image: ${DOCKERHUB_USERNAME}/store-sales-model:latest"
