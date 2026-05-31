@@ -110,39 +110,19 @@ jobs:
       # ── 8. Upload artefak ke Google Drive ─────────────
       - name: Upload to Google Drive
         env:
-          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
-          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ env.RUN_ID }}
         run: |
-          echo '${{ secrets.GDRIVE_CREDENTIALS }}' > /tmp/gdrive_creds.json
-          python - <<'PYEOF'
-          import os
-          from google.oauth2 import service_account
-          from googleapiclient.discovery import build
-          from googleapiclient.http import MediaFileUpload
-
-          creds_path = '/tmp/gdrive_creds.json'
-          scopes = ['https://www.googleapis.com/auth/drive']
-          creds = service_account.Credentials.from_service_account_file(creds_path, scopes=scopes)
-          service = build('drive', 'v3', credentials=creds)
-          folder_id = os.environ.get('GDRIVE_FOLDER_ID', 'root')
-
-          artifacts = []
-          for root, dirs, files in os.walk('MLProject/ci_artifacts'):
-              for fname in files:
-                  artifacts.append(os.path.join(root, fname))
-
-          for artifact in artifacts:
-              file_metadata = {'name': os.path.basename(artifact), 'parents': [folder_id]}
-              media = MediaFileUpload(artifact, resumable=True)
-              f = service.files().create(
-                  body=file_metadata,
-                  media_body=media,
-                  fields='id',
-                  supportsAllDrives=True
-              ).execute()
-              print(f"Uploaded {artifact} -> {f.get('id')}")
-          print("All artifacts uploaded to Google Drive")
-          PYEOF
+          cd MLProject
+          zip -r ../ci_artifacts.zip ci_artifacts/
+          cd ..
+          gh release create "run-${RUN_ID:0:7}" ci_artifacts.zip \
+            --title "CI Artifacts - ${RUN_ID:0:7}" \
+            --notes "MLflow Run ID: ${RUN_ID}" \
+            --repo NelsonFW01/Workflow-CI || \
+          gh release upload "run-${RUN_ID:0:7}" ci_artifacts.zip \
+            --repo NelsonFW01/Workflow-CI
+          echo "Artifacts uploaded to GitHub Release"
 
       # ── 9. Build Docker image ──────────────────────────
       - name: Build Docker Model
