@@ -33,7 +33,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install \
-            tensorflow==2.15.0 \
+            tensorflow==2.18.0 \
             mlflow==2.19.0 \
             dagshub \
             pandas==2.2.2 \
