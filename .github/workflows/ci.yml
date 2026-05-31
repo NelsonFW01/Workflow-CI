@@ -48,10 +48,11 @@ jobs:
       # ── 3. Run preprocessing ──────────────────────────
       - name: Run preprocessing
         run: |
-          python MLProject/automate_NelsonFw.py
+          cd MLProject
+          python automate_NelsonFw.py
           echo "Preprocessing done"
-          ls -la store_sales_preprocessing/ || echo "Output in MLProject folder"
-          ls -la MLProject/store_sales_preprocessing/ || true
+          ls -la store_sales_preprocessing/
+          cd ..
 
       # ── 4. Set MLflow Tracking URI (DagsHub) ─────────
       - name: Set MLflow Tracking URI
