@@ -42,7 +42,6 @@ args = parser.parse_args()
 # ─────────────────────────────────────────────
 MLFLOW_TRACKING_URI = os.environ.get('MLFLOW_TRACKING_URI', 'http://127.0.0.1:5000/')
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-mlflow.set_experiment("StoreSales-CI-Pipeline")
 
 DATA_PATH = './store_sales_preprocessing/train_preprocessed.csv'
 ARTIFACTS_DIR = './ci_artifacts'
@@ -108,7 +107,11 @@ def main():
 
     mlflow.tensorflow.autolog(log_models=True, log_input_examples=True)
 
-    with mlflow.start_run(run_name="CI-DNN-StoreSales"):
+    active_run = mlflow.active_run()
+    if active_run is None:
+        active_run = mlflow.start_run(run_name="CI-DNN-StoreSales")
+
+    with active_run:
         model = build_model()
 
         callbacks = [
