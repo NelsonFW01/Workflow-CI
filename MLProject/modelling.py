@@ -144,8 +144,8 @@ def main():
         mlflow.log_artifact(loss_path)
 
         # Simpan model ke disk juga (untuk Docker build)
-        model.save(os.path.join(ARTIFACTS_DIR, 'saved_model'))
-        mlflow.log_artifact(os.path.join(ARTIFACTS_DIR, 'saved_model'))
+        model.save(os.path.join(ARTIFACTS_DIR, 'saved_model.keras'))
+        mlflow.log_artifact(os.path.join(ARTIFACTS_DIR, 'saved_model.keras'))
 
         print(f"\nMAE:  {mae:.4f}")
         print(f"RMSE: {rmse:.4f}")
