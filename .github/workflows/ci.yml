@@ -115,17 +115,15 @@ jobs:
         run: |
           echo '${{ secrets.GDRIVE_CREDENTIALS }}' > /tmp/gdrive_creds.json
           python - <<'PYEOF'
-          import os, json
+          import os
           from google.oauth2 import service_account
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
 
           creds_path = '/tmp/gdrive_creds.json'
           scopes = ['https://www.googleapis.com/auth/drive']
-          creds = service_account.Credentials.from_service_account_file(
-              creds_path, scopes=scopes)
+          creds = service_account.Credentials.from_service_account_file(creds_path, scopes=scopes)
           service = build('drive', 'v3', credentials=creds)
-
           folder_id = os.environ.get('GDRIVE_FOLDER_ID', 'root')
 
           artifacts = []
@@ -136,7 +134,12 @@ jobs:
           for artifact in artifacts:
               file_metadata = {'name': os.path.basename(artifact), 'parents': [folder_id]}
               media = MediaFileUpload(artifact, resumable=True)
-              f = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+              f = service.files().create(
+                  body=file_metadata,
+                  media_body=media,
+                  fields='id',
+                  supportsAllDrives=True
+              ).execute()
               print(f"Uploaded {artifact} -> {f.get('id')}")
           print("All artifacts uploaded to Google Drive")
           PYEOF
