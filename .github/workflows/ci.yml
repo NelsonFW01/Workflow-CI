@@ -154,19 +154,17 @@ jobs:
       # ── 11. Tag Docker image ──────────────────────────
       - name: Tag Docker Image
         env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_NELSON }}
         run: |
           SHORT_SHA=${GITHUB_SHA::7}
-          docker tag ${{ env.IMAGE_NAME }} \
-            ${DOCKERHUB_USERNAME}/store-sales-model:${SHORT_SHA}
-          docker tag ${{ env.IMAGE_NAME }} \
-            ${DOCKERHUB_USERNAME}/store-sales-model:latest
+          docker tag store-sales-model nelsonfw/store-sales-model:${SHORT_SHA}
+          docker tag store-sales-model nelsonfw/store-sales-model:latest
           echo "DOCKER_TAG=${SHORT_SHA}" >> $GITHUB_ENV
 
       # ── 12. Push Docker image ke Docker Hub ──────────
       - name: Push Docker Image
         env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_NELSON }}
         run: |
           docker push ${DOCKERHUB_USERNAME}/store-sales-model:${{ env.DOCKER_TAG }}
           docker push ${DOCKERHUB_USERNAME}/store-sales-model:latest
